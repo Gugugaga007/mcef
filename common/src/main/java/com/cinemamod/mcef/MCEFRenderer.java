@@ -1,49 +1,34 @@
-/*
- *     MCEF (Minecraft Chromium Embedded Framework)
- *     Copyright (C) 2023 CinemaMod Group
- *
- *     This library is free software; you can redistribute it and/or
- *     modify it under the terms of the GNU Lesser General Public
- *     License as published by the Free Software Foundation; either
- *     version 2.1 of the License, or (at your option) any later version.
- *
- *     This library is distributed in the hope that it will be useful,
- *     but WITHOUT ANY WARRANTY; without even the implied warranty of
- *     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- *     Lesser General Public License for more details.
- *
- *     You should have received a copy of the GNU Lesser General Public
- *     License along with this library; if not, write to the Free Software
- *     Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301
- *     USA
- */
-
 package com.cinemamod.mcef;
 
-import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.blaze3d.platform.NativeImage;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.texture.DynamicTexture;
+import net.minecraft.resources.Identifier;
+import org.lwjgl.system.MemoryUtil;
 
 import java.nio.ByteBuffer;
-
-import static org.lwjgl.opengl.GL12.*;
+import java.util.UUID;
 
 public class MCEFRenderer {
     private final boolean transparent;
-    private final int[] textureID = new int[1];
+    private DynamicTexture texture;
+    private Identifier textureId;
+    private int texWidth;
+    private int texHeight;
 
     protected MCEFRenderer(boolean transparent) {
         this.transparent = transparent;
     }
 
     public void initialize() {
-        textureID[0] = glGenTextures();
-        RenderSystem.bindTexture(textureID[0]);
-        RenderSystem.texParameter(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        RenderSystem.texParameter(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        RenderSystem.bindTexture(0);
+    }
+
+    public Identifier getTextureId() {
+        return textureId;
     }
 
     public int getTextureID() {
-        return textureID[0];
+        return 0;
     }
 
     public boolean isTransparent() {
@@ -51,25 +36,87 @@ public class MCEFRenderer {
     }
 
     protected void cleanup() {
-        if (textureID[0] != 0) {
-            glDeleteTextures(textureID[0]);
-            textureID[0] = 0;
+        if (texture != null) {
+            if (textureId != null) {
+                Minecraft.getInstance().getTextureManager().release(textureId);
+                textureId = null;
+            }
+            texture.close();
+            texture = null;
         }
     }
 
     protected void onPaint(ByteBuffer buffer, int width, int height) {
-        if (textureID[0] == 0) return;
-        if (transparent) RenderSystem.enableBlend();
-        RenderSystem.bindTexture(textureID[0]);
-        RenderSystem.pixelStore(GL_UNPACK_ROW_LENGTH, width);
-        RenderSystem.pixelStore(GL_UNPACK_SKIP_PIXELS, 0);
-        RenderSystem.pixelStore(GL_UNPACK_SKIP_ROWS, 0);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0,
-                GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, buffer);
+        if (width <= 0 || height <= 0) return;
+
+        if (this.texture == null || this.texWidth != width || this.texHeight != height) {
+            if (this.texture != null) {
+                if (this.textureId != null) {
+                    Minecraft.getInstance().getTextureManager().release(this.textureId);
+                }
+                this.texture.close();
+            }
+            this.texWidth = width;
+            this.texHeight = height;
+            this.texture = new DynamicTexture("mcef_browser", width, height, false);
+            this.textureId = Identifier.fromNamespaceAndPath("mcef", UUID.randomUUID().toString().toLowerCase());
+            Minecraft.getInstance().getTextureManager().register(this.textureId, this.texture);
+        }
+
+        NativeImage image = this.texture.getPixels();
+        if (image == null) return;
+        long dstPtr = image.getPointer();
+        if (dstPtr == 0) return;
+
+        long totalBytes = (long) width * (long) height * 4L;
+        if (buffer.limit() > 0) {
+            long srcPtr = MemoryUtil.memAddress(buffer);
+            for (long offset = 0; offset < totalBytes; offset += 4) {
+                byte b = MemoryUtil.memGetByte(srcPtr + offset);
+                byte g = MemoryUtil.memGetByte(srcPtr + offset + 1);
+                byte r = MemoryUtil.memGetByte(srcPtr + offset + 2);
+                byte a = MemoryUtil.memGetByte(srcPtr + offset + 3);
+                MemoryUtil.memPutByte(dstPtr + offset, r);
+                MemoryUtil.memPutByte(dstPtr + offset + 1, g);
+                MemoryUtil.memPutByte(dstPtr + offset + 2, b);
+                MemoryUtil.memPutByte(dstPtr + offset + 3, a);
+            }
+            this.texture.upload();
+        }
     }
 
     protected void onPaint(ByteBuffer buffer, int x, int y, int width, int height) {
-        glTexSubImage2D(GL_TEXTURE_2D, 0, x, y, width, height, GL_BGRA,
-                GL_UNSIGNED_INT_8_8_8_8_REV, buffer);
+        if (this.texture == null || width <= 0 || height <= 0) return;
+
+        NativeImage image = this.texture.getPixels();
+        if (image == null) return;
+        long dstPtr = image.getPointer();
+        if (dstPtr == 0) return;
+
+        long srcPtr = MemoryUtil.memAddress(buffer);
+        int fullWidth = this.texWidth;
+        int fullHeight = this.texHeight;
+
+        for (int r = 0; r < height; r++) {
+            int curY = y + r;
+            if (curY >= fullHeight) break;
+
+            long rowPixelOffset = ((long) curY * (long) fullWidth + (long) x) * 4L;
+            long srcRow = srcPtr + rowPixelOffset;
+            long dstRow = dstPtr + rowPixelOffset;
+
+            int rowBytes = Math.min(width, fullWidth - x) * 4;
+            for (int c = 0; c < rowBytes; c += 4) {
+                byte b = MemoryUtil.memGetByte(srcRow + c);
+                byte g = MemoryUtil.memGetByte(srcRow + c + 1);
+                byte rCol = MemoryUtil.memGetByte(srcRow + c + 2);
+                byte a = MemoryUtil.memGetByte(srcRow + c + 3);
+                MemoryUtil.memPutByte(dstRow + c, rCol);
+                MemoryUtil.memPutByte(dstRow + c + 1, g);
+                MemoryUtil.memPutByte(dstRow + c + 2, b);
+                MemoryUtil.memPutByte(dstRow + c + 3, a);
+            }
+        }
+        this.texture.upload();
     }
 }
