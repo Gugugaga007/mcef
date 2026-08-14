@@ -3,7 +3,7 @@ package com.cinemamod.mcef;
 import com.mojang.blaze3d.platform.NativeImage;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.texture.DynamicTexture;
-import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceLocation;
 import org.lwjgl.system.MemoryUtil;
 
 import java.nio.ByteBuffer;
@@ -12,7 +12,7 @@ import java.util.UUID;
 public class MCEFRenderer {
     private final boolean transparent;
     private DynamicTexture texture;
-    private Identifier textureId;
+    private ResourceLocation textureId;
     private int texWidth;
     private int texHeight;
 
@@ -24,12 +24,12 @@ public class MCEFRenderer {
     }
 
     /**
-     * Retrieves the modern Minecraft Identifier for the rendered CEF browser texture.
+     * Retrieves the modern Minecraft ResourceLocation for the rendered CEF browser texture.
      * Use this with GuiGraphics.blit(textureId, ...) or custom shaders.
      *
-     * @return The dynamic texture Identifier, or null if uninitialized.
+     * @return The dynamic texture ResourceLocation, or null if uninitialized.
      */
-    public Identifier getTextureId() {
+    public ResourceLocation getTextureId() {
         return textureId;
     }
 
@@ -55,6 +55,29 @@ public class MCEFRenderer {
         }
     }
 
+    private static java.lang.reflect.Field pixelsField;
+    static {
+        try {
+            for (java.lang.reflect.Field f : NativeImage.class.getDeclaredFields()) {
+                if (f.getType() == long.class) {
+                    f.setAccessible(true);
+                    pixelsField = f;
+                    break;
+                }
+            }
+        } catch (Exception ignored) {}
+    }
+
+    private static long getPointer(NativeImage image) {
+        if (image == null) return 0;
+        try {
+            if (pixelsField != null) {
+                return pixelsField.getLong(image);
+            }
+        } catch (Exception ignored) {}
+        return 0;
+    }
+
     protected void onPaint(ByteBuffer buffer, int width, int height) {
         if (width <= 0 || height <= 0) return;
 
@@ -67,14 +90,13 @@ public class MCEFRenderer {
             }
             this.texWidth = width;
             this.texHeight = height;
-            this.texture = new DynamicTexture("mcef_browser", width, height, false);
-            this.textureId = Identifier.fromNamespaceAndPath("mcef", UUID.randomUUID().toString().toLowerCase());
+            this.texture = new DynamicTexture(new NativeImage(NativeImage.Format.RGBA, width, height, false));
+            this.textureId = ResourceLocation.fromNamespaceAndPath("mcef", UUID.randomUUID().toString().toLowerCase());
             Minecraft.getInstance().getTextureManager().register(this.textureId, this.texture);
         }
 
         NativeImage image = this.texture.getPixels();
-        if (image == null) return;
-        long dstPtr = image.getPointer();
+        long dstPtr = getPointer(image);
         if (dstPtr == 0) return;
 
         long totalBytes = (long) width * (long) height * 4L;
@@ -98,8 +120,7 @@ public class MCEFRenderer {
         if (this.texture == null || width <= 0 || height <= 0) return;
 
         NativeImage image = this.texture.getPixels();
-        if (image == null) return;
-        long dstPtr = image.getPointer();
+        long dstPtr = getPointer(image);
         if (dstPtr == 0) return;
 
         long srcPtr = MemoryUtil.memAddress(buffer);

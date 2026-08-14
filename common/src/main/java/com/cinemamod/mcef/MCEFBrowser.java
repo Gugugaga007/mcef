@@ -132,10 +132,13 @@ public class MCEFBrowser extends CefBrowserOsr {
         int[] winWidth = new int[1];
         int[] winHeight = new int[1];
         GLFW.glfwGetWindowSize(window, winWidth, winHeight);
+        if (winWidth[0] <= 0 || winHeight[0] <= 0) {
+            return 1.0;
+        }
 
         // The device scale factor is the ratio of the allocated framebuffer size to the window size
         // https://stackoverflow.com/questions/44719635/what-is-the-difference-between-glfwgetwindowsize-and-glfwgetframebuffersize
-        return Math.max(1, Math.min(fbWidth[0] / winWidth[0], fbHeight[0] / winHeight[0]));
+        return Math.max(1.0, Math.min((double)fbWidth[0] / (double)winWidth[0], (double)fbHeight[0] / (double)winHeight[0]));
       } else {
           return deviceScaleFactor > 0 ? deviceScaleFactor : 1;
       }
