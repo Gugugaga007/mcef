@@ -23,12 +23,21 @@ public class MCEFRenderer {
     public void initialize() {
     }
 
+    /**
+     * Retrieves the modern Minecraft Identifier for the rendered CEF browser texture.
+     * Use this with GuiGraphics.blit(textureId, ...) or custom shaders.
+     *
+     * @return The dynamic texture Identifier, or null if uninitialized.
+     */
     public Identifier getTextureId() {
         return textureId;
     }
 
+    /**
+     * Legacy OpenGL texture ID for backwards compatibility.
+     */
     public int getTextureID() {
-        return 0;
+        return texture != null ? 1 : 0;
     }
 
     public boolean isTransparent() {
